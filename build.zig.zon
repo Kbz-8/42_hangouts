@@ -1,0 +1,18 @@
+.{
+    .name = .ft_hangouts,
+    .version = "0.0.1",
+
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+    .fingerprint = 0x5acae603a3cd5e2,
+
+    .dependencies = .{
+        .android = .{
+            .url = "https://github.com/silbinarywolf/zig-android-sdk/archive/abeec4e7d2914af928c8decbdb544acda04c4ec7.tar.gz",
+            .hash = "android-0.1.0-7iz7QkLfAQCN9F5hOF4i4xDOsxx9VU3fTlV-PWJ97T8n",
+        },
+    },
+}
