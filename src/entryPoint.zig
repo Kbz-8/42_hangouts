@@ -6,7 +6,7 @@ const MainActivity = @import("MainActivity.zig").MainActivity;
 
 comptime {
     if (builtin.abi.isAndroid()) {
-        @export(&NativeActivity_onCreate, .{ .name = "ANativeActivity_onCreate" });
+        @export(&nativeActivityOnCreate, .{ .name = "ANativeActivity_onCreate" });
     } else {
         @compileError("This program can only run on Android");
     }
@@ -25,16 +25,15 @@ else
     std.debug.FullPanic(std.debug.defaultPanic);
 
 /// Android entry point
-fn NativeActivity_onCreate(activity: *android_binds.ANativeActivity, rawSavedState: ?[*]u8, rawSavedStateSize: usize) callconv(.c) void {
+fn nativeActivityOnCreate(activity: *android_binds.ANativeActivity, rawSavedState: ?[*]u8, rawSavedStateSize: usize) callconv(.c) void {
     const savedState: []const u8 = if (rawSavedState) |s|
         s[0..rawSavedStateSize]
     else
         &[0]u8{};
 
     const allocator = std.heap.c_allocator;
-    var main_activity = MainActivity.init(activity, savedState, allocator) catch |err| {
+    _ = MainActivity.init(activity, savedState, allocator) catch |err| {
         std.log.err("ANativeActivity_onCreate: error within nativeActivityOnCreate: {s}", .{@errorName(err)});
         return;
     };
-    defer main_activity.deinit();
 }

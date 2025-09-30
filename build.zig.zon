@@ -14,5 +14,9 @@
             .url = "https://github.com/silbinarywolf/zig-android-sdk/archive/abeec4e7d2914af928c8decbdb544acda04c4ec7.tar.gz",
             .hash = "android-0.1.0-7iz7QkLfAQCN9F5hOF4i4xDOsxx9VU3fTlV-PWJ97T8n",
         },
+        .zmath = .{
+            .url = "git+https://github.com/zig-gamedev/zmath.git#05799b336d4eb315cd5a5e5693a5704ba01db36c",
+            .hash = "zmath-0.11.0-dev-wjwivdErAwA9JvOksjectxgnDUZumDR1V9DwKy5UeTOT",
+        },
     },
 }

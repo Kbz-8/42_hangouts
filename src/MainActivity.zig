@@ -26,10 +26,6 @@ pub const MainActivity = struct {
         };
     }
 
-    pub fn deinit(self: *Self) void {
-        self.allocator.destroy(self.app);
-    }
-
     /// Setups at comptime all native activity functions with safe try and fail system for non implemented ones
     fn setupNativeActivityMatress(comptime App: type) android_binds.ANativeActivityCallbacks {
         const T = struct {

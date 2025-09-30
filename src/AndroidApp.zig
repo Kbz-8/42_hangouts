@@ -1,6 +1,7 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const android = @import("android");
+const zm = @import("zmath");
 const android_binds = @import("android_binds.zig");
 const EGLContext = @import("EGLContext.zig").EGLContext;
 
@@ -41,6 +42,7 @@ pub const AndroidApp = struct {
 
     egl_lock: std.Thread.Mutex = .{},
     egl: ?EGLContext = null,
+    egl_init: bool = true,
 
     running: bool = true,
 
@@ -70,6 +72,7 @@ pub const AndroidApp = struct {
             std.log.err("Failed to initialize EGL for window: {}\n", .{err});
             break :blk null;
         };
+        self.egl_init = true;
     }
 
     pub fn onNativeWindowResized(self: *Self, window: *android_binds.ANativeWindow) void {
@@ -95,8 +98,11 @@ pub const AndroidApp = struct {
     }
 
     fn mainLoop(self: *Self) !void {
-        var shader_init = false;
         var program: c.GLuint = undefined;
+        var proj_location: c.GLint = undefined;
+        var model_location: c.GLint = undefined;
+
+        var loop: usize = 0;
 
         while (@atomicLoad(bool, &self.running, .seq_cst)) {
             self.egl_lock.lock();
@@ -104,28 +110,10 @@ pub const AndroidApp = struct {
 
             if (self.egl) |egl| {
                 try egl.makeCurrent();
-                std.log.debug("test1", .{});
 
-                if (!shader_init) {
-                    const vertex_shader_code =
-                        \\ #version 100
-                        \\
-                        \\ attribute vec3 aPos;
-                        \\
-                        \\ void main()
-                        \\ {
-                        \\     gl_Position = vec4(aPos, 1.0);
-                        \\ }
-                    ;
-                    const fragment_shader_code =
-                        \\ #version 100
-                        \\ precision mediump float;
-                        \\
-                        \\ void main()
-                        \\ {
-                        \\     gl_FragColor = vec4(1.0, 0.5, 0.2, 1.0);
-                        \\ }
-                    ;
+                if (self.egl_init) {
+                    const vertex_shader_code = @embedFile("shaders/ui.vert");
+                    const fragment_shader_code = @embedFile("shaders/ui.frag");
 
                     const vertex_shader = try loadShader(c.GL_VERTEX_SHADER, vertex_shader_code);
                     const fragment_shader = try loadShader(c.GL_FRAGMENT_SHADER, fragment_shader_code);
@@ -137,6 +125,7 @@ pub const AndroidApp = struct {
                     c.glAttachShader(program, vertex_shader);
                     c.glAttachShader(program, fragment_shader);
                     c.glBindAttribLocation(program, 0, "aPos");
+                    c.glBindAttribLocation(program, 1, "aColor");
                     c.glLinkProgram(program);
 
                     var linked: c.GLuint = undefined;
@@ -148,33 +137,52 @@ pub const AndroidApp = struct {
                         std.log.err("\nFailed to link program: {s}\n", .{buffer[0..@as(usize, @intCast(size))]});
                         return error.GLFailedToLinkProgram;
                     }
-                    shader_init = true;
-                    std.log.debug("test2", .{});
+                    proj_location = c.glGetUniformLocation(program, "proj");
+                    model_location = c.glGetUniformLocation(program, "model");
+                    self.egl_init = false;
                 }
 
-                const vertices = [_]c.GLfloat{ 0.0, 0.5, 0.0, -0.5, -0.5, 0.0, 0.5, -0.5, 0.0 };
+                const triangle_size = 300;
+                const half_triangle_size = @divExact(triangle_size, 2);
+                const vertices = [_]c.GLfloat{
+                    @floatFromInt(-triangle_size), @floatFromInt(-triangle_size),
+                    0.0,                           @floatFromInt(half_triangle_size),
+                    @floatFromInt(triangle_size),  @floatFromInt(-triangle_size),
+                };
+                const colors = [_]c.GLfloat{
+                    1.0, 0.0, 0.0,
+                    0.0, 1.0, 0.0,
+                    0.0, 0.0, 1.0,
+                };
+                const projection = zm.orthographicRh(@floatFromInt(self.screen_width), @floatFromInt(self.screen_height), 0.1, 1.0);
 
-                std.log.debug("test3", .{});
+                const t = @as(f32, @floatFromInt(loop)) / 100.0;
+                var model = zm.identity();
+                model = zm.mul(model, zm.translation(0.0, half_triangle_size, 0.0));
+                model = zm.mul(model, zm.rotationZ(t));
+
                 c.glViewport(0, 0, self.screen_width, self.screen_height);
-                std.log.debug("test4", .{});
                 c.glClearColor(0.2, 0.3, 0.3, 1.0);
-                std.log.debug("test5", .{});
                 c.glClear(c.GL_COLOR_BUFFER_BIT);
-                std.log.debug("test6", .{});
-                c.glUseProgram(program);
-                std.log.debug("test7", .{});
-                c.glVertexAttribPointer(0, 3, c.GL_FLOAT, c.GL_FALSE, 0, @ptrCast(&vertices));
-                std.log.debug("test8", .{});
-                c.glEnableVertexAttribArray(0);
-                std.log.debug("test9", .{});
-                c.glDrawArrays(c.GL_TRIANGLES, 0, 3);
-                std.log.debug("test0", .{});
+
+                {
+                    c.glUseProgram(program);
+                    c.glUniformMatrix4fv(proj_location, 1, c.GL_FALSE, @ptrCast(&projection));
+                    c.glUniformMatrix4fv(model_location, 1, c.GL_FALSE, @ptrCast(&model));
+
+                    c.glVertexAttribPointer(0, 2, c.GL_FLOAT, c.GL_FALSE, 0, @ptrCast(&vertices));
+                    c.glEnableVertexAttribArray(0);
+
+                    c.glVertexAttribPointer(1, 3, c.GL_FLOAT, c.GL_FALSE, 0, @ptrCast(&colors));
+                    c.glEnableVertexAttribArray(1);
+
+                    c.glDrawArrays(c.GL_TRIANGLES, 0, 3);
+                }
 
                 try egl.swapBuffers();
-                std.log.debug("test10", .{});
             }
+            loop += 1;
         }
-        std.log.debug("test11", .{});
     }
 
     pub fn deinit(self: *Self) void {

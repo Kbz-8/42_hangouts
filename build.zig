@@ -19,7 +19,7 @@ pub fn build(b: *std.Build) void {
 
         const android_sdk = android.Sdk.create(b, .{});
         const apk = android_sdk.createApk(.{
-            .api_level = .android15,
+            .api_level = .android11,
             .build_tools_version = "35.0.1",
             .ndk_version = "29.0.13113456",
         });
@@ -44,6 +44,7 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .root_source_file = b.path("src/entryPoint.zig"),
+            .link_libc = true,
         });
 
         var exe: *std.Build.Step.Compile = if (target.result.abi.isAndroid()) b.addLibrary(.{
@@ -59,26 +60,22 @@ pub fn build(b: *std.Build) void {
         // NOTE: Android has different CPU targets so you need to build a version of your
         //       code for x86, x86_64, arm, arm64 and more
         if (target.result.abi.isAndroid()) {
+            const zmath = b.dependency("zmath", .{});
+
             const apk: *android.Apk = android_apk orelse @panic("Android APK should be initialized");
             const android_dep = b.dependency("android", .{
                 .optimize = optimize,
                 .target = target,
             });
             exe.root_module.addImport("android", android_dep.module("android"));
+            exe.root_module.addImport("zmath", zmath.module("root"));
             exe.root_module.linkSystemLibrary("android", .{});
             exe.root_module.linkSystemLibrary("EGL", .{});
             exe.root_module.linkSystemLibrary("GLESv2", .{});
 
             apk.addArtifact(exe);
         } else {
-            b.installArtifact(exe);
-
-            // If only 1 target, add "run" step
-            if (targets.len == 1) {
-                const run_step = b.step("run", "Run the application");
-                const run_cmd = b.addRunArtifact(exe);
-                run_step.dependOn(&run_cmd.step);
-            }
+            unreachable;
         }
     }
     if (android_apk) |apk| {
