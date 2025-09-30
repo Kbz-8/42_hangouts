@@ -80,8 +80,6 @@ pub const EGLContext = struct {
             return error.FailedToInitializeEGL;
         }
 
-        std.log.info("Config: {}\n", .{num_config});
-
         const context_attribute_list = [_]EGLint{ c.EGL_CONTEXT_CLIENT_VERSION, 2, c.EGL_NONE };
 
         const context = c.eglCreateContext(egl_display, config, null, &context_attribute_list) orelse {

@@ -10,6 +10,25 @@ const c = @cImport({
     @cInclude("GLES2/gl2ext.h");
 });
 
+fn loadShader(kind: c.GLenum, code: []const u8) !c.GLuint {
+    var compiled: c.GLuint = undefined;
+
+    const shader: c.GLuint = c.glCreateShader(kind);
+    if (shader == 0)
+        return error.GLFailedToCreateShader;
+    c.glShaderSource(shader, 1, @as([*c]const [*c]const u8, @ptrCast(&code)), null);
+    c.glCompileShader(shader);
+    c.glGetShaderiv(shader, c.GL_COMPILE_STATUS, @ptrCast(&compiled));
+    if (compiled == 0) {
+        var buffer: [4096]u8 = undefined;
+        var size: c.GLsizei = undefined;
+        c.glGetShaderInfoLog(shader, 4096, &size, &buffer);
+        std.log.err("\nFailed to compile shader: {s}\n", .{buffer[0..@as(usize, @intCast(size))]});
+        return error.GLFailedToCompileShader;
+    }
+    return shader;
+}
+
 pub const AndroidApp = struct {
     const Self = @This();
 
@@ -17,7 +36,6 @@ pub const AndroidApp = struct {
     activity: *android_binds.ANativeActivity,
     thread: ?std.Thread = null,
 
-    egl_lock: std.Thread.Mutex = .{},
     egl: ?EGLContext = null,
 
     running: bool = true,
@@ -31,13 +49,10 @@ pub const AndroidApp = struct {
 
     pub fn start(self: *Self) !void {
         std.log.debug("Started ft_hangouts", .{});
-        self.thread = try std.Thread.spawn(.{}, mainLoop, .{self});
+        self.thread = try std.Thread.spawn(.{}, localThread, .{self});
     }
 
     pub fn onNativeWindowCreated(self: *Self, window: *android_binds.ANativeWindow) void {
-        self.egl_lock.lock();
-        defer self.egl_lock.unlock();
-
         if (self.egl) |*old| {
             old.deinit();
         }
@@ -48,32 +63,97 @@ pub const AndroidApp = struct {
     }
 
     pub fn onNativeWindowDestroyed(self: *Self, _: *android_binds.ANativeWindow) void {
-        self.egl_lock.lock();
-        defer self.egl_lock.unlock();
-
+        self.waitForThread();
         if (self.egl) |*old| {
             old.deinit();
         }
         self.egl = null;
     }
 
+    fn localThread(self: *Self) void {
+        mainLoop(self) catch |err| {
+            std.log.err("\nError catched in main loop: {}\n", .{err});
+            return;
+        };
+    }
+
     fn mainLoop(self: *Self) !void {
+        var shader_init = false;
+        var program: c.GLuint = undefined;
+
         while (@atomicLoad(bool, &self.running, .seq_cst)) {
-            self.egl_lock.lock();
-            defer self.egl_lock.unlock();
             if (self.egl) |egl| {
                 try egl.makeCurrent();
-                std.log.info("test", .{});
+
+                if (!shader_init) {
+                    const vertex_shader_code =
+                        \\ #version 100
+                        \\
+                        \\ attribute vec3 aPos;
+                        \\
+                        \\ void main()
+                        \\ {
+                        \\     gl_Position = vec4(aPos, 1.0);
+                        \\ }
+                    ;
+                    const fragment_shader_code =
+                        \\ #version 100
+                        \\ precision mediump float;
+                        \\
+                        \\ void main()
+                        \\ {
+                        \\     gl_FragColor = vec4(1.0, 0.5, 0.2, 1.0);
+                        \\ }
+                    ;
+
+                    const vertex_shader = try loadShader(c.GL_VERTEX_SHADER, vertex_shader_code);
+                    const fragment_shader = try loadShader(c.GL_FRAGMENT_SHADER, fragment_shader_code);
+
+                    program = c.glCreateProgram();
+                    if (program == 0)
+                        return error.GLFailedToCreateProgram;
+
+                    c.glAttachShader(program, vertex_shader);
+                    c.glAttachShader(program, fragment_shader);
+                    c.glBindAttribLocation(program, 0, "aPos");
+                    c.glLinkProgram(program);
+
+                    var linked: c.GLuint = undefined;
+                    c.glGetShaderiv(program, c.GL_LINK_STATUS, @ptrCast(&linked));
+                    if (linked == 0) {
+                        var buffer: [4096]u8 = undefined;
+                        var size: c.GLsizei = undefined;
+                        c.glGetProgramInfoLog(program, 4096, &size, &buffer);
+                        std.log.err("\nFailed to link program: {s}\n", .{buffer[0..@as(usize, @intCast(size))]});
+                        return error.GLFailedToLinkProgram;
+                    }
+                    shader_init = true;
+                }
+
+                const vertices = [_]c.GLfloat{ 0.0, 0.5, 0.0, -0.5, -0.5, 0.0, 0.5, -0.5, 0.0 };
+
+                c.glClearColor(0.2, 0.3, 0.3, 1.0);
+                c.glClear(c.GL_COLOR_BUFFER_BIT);
+                c.glUseProgram(program);
+                c.glVertexAttribPointer(0, 3, c.GL_FLOAT, c.GL_FALSE, 0, @ptrCast(&vertices));
+                c.glEnableVertexAttribArray(0);
+                c.glDrawArrays(c.GL_TRIANGLES, 0, 3);
+
+                try egl.swapBuffers();
             }
         }
     }
 
-    pub fn deinit(self: *Self) void {
+    fn waitForThread(self: *Self) void {
         @atomicStore(bool, &self.running, false, .seq_cst);
         if (self.thread) |thread| {
             thread.join();
             self.thread = null;
         }
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.waitForThread();
         self.* = undefined;
         std.log.debug("Exited ft_hangouts", .{});
     }
