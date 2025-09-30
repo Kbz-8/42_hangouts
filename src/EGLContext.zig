@@ -100,6 +100,7 @@ pub const EGLContext = struct {
         errdefer _ = c.eglDestroySurface(egl_display, context);
 
         std.log.info("Got Surface: {}\n", .{egl_surface});
+        std.log.debug("Created EGLContext", .{});
 
         return Self{
             .display = egl_display,

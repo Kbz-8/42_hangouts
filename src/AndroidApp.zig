@@ -39,6 +39,7 @@ pub const AndroidApp = struct {
     screen_width: i32 = undefined,
     screen_height: i32 = undefined,
 
+    egl_lock: std.Thread.Mutex = .{},
     egl: ?EGLContext = null,
 
     running: bool = true,
@@ -56,6 +57,8 @@ pub const AndroidApp = struct {
     }
 
     pub fn onNativeWindowCreated(self: *Self, window: *android_binds.ANativeWindow) void {
+        self.egl_lock.lock();
+        defer self.egl_lock.unlock();
         if (self.egl) |*old| {
             old.deinit();
         }
@@ -69,8 +72,15 @@ pub const AndroidApp = struct {
         };
     }
 
+    pub fn onNativeWindowResized(self: *Self, window: *android_binds.ANativeWindow) void {
+        self.screen_width = android_binds.ANativeWindow_getWidth(window);
+        self.screen_height = android_binds.ANativeWindow_getHeight(window);
+    }
+
     pub fn onNativeWindowDestroyed(self: *Self, _: *android_binds.ANativeWindow) void {
-        self.waitForThread();
+        self.egl_lock.lock();
+        defer self.egl_lock.unlock();
+
         if (self.egl) |*old| {
             old.deinit();
         }
@@ -89,8 +99,12 @@ pub const AndroidApp = struct {
         var program: c.GLuint = undefined;
 
         while (@atomicLoad(bool, &self.running, .seq_cst)) {
+            self.egl_lock.lock();
+            defer self.egl_lock.unlock();
+
             if (self.egl) |egl| {
                 try egl.makeCurrent();
+                std.log.debug("test1", .{});
 
                 if (!shader_init) {
                     const vertex_shader_code =
@@ -135,32 +149,40 @@ pub const AndroidApp = struct {
                         return error.GLFailedToLinkProgram;
                     }
                     shader_init = true;
+                    std.log.debug("test2", .{});
                 }
 
                 const vertices = [_]c.GLfloat{ 0.0, 0.5, 0.0, -0.5, -0.5, 0.0, 0.5, -0.5, 0.0 };
 
+                std.log.debug("test3", .{});
+                c.glViewport(0, 0, self.screen_width, self.screen_height);
+                std.log.debug("test4", .{});
                 c.glClearColor(0.2, 0.3, 0.3, 1.0);
+                std.log.debug("test5", .{});
                 c.glClear(c.GL_COLOR_BUFFER_BIT);
+                std.log.debug("test6", .{});
                 c.glUseProgram(program);
+                std.log.debug("test7", .{});
                 c.glVertexAttribPointer(0, 3, c.GL_FLOAT, c.GL_FALSE, 0, @ptrCast(&vertices));
+                std.log.debug("test8", .{});
                 c.glEnableVertexAttribArray(0);
+                std.log.debug("test9", .{});
                 c.glDrawArrays(c.GL_TRIANGLES, 0, 3);
+                std.log.debug("test0", .{});
 
                 try egl.swapBuffers();
+                std.log.debug("test10", .{});
             }
         }
+        std.log.debug("test11", .{});
     }
 
-    fn waitForThread(self: *Self) void {
+    pub fn deinit(self: *Self) void {
         @atomicStore(bool, &self.running, false, .seq_cst);
         if (self.thread) |thread| {
             thread.join();
             self.thread = null;
         }
-    }
-
-    pub fn deinit(self: *Self) void {
-        self.waitForThread();
         self.* = undefined;
         std.log.debug("Exited ft_hangouts", .{});
     }
