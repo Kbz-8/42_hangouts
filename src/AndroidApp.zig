@@ -36,6 +36,9 @@ pub const AndroidApp = struct {
     activity: *android_binds.ANativeActivity,
     thread: ?std.Thread = null,
 
+    screen_width: i32 = undefined,
+    screen_height: i32 = undefined,
+
     egl: ?EGLContext = null,
 
     running: bool = true,
@@ -56,6 +59,10 @@ pub const AndroidApp = struct {
         if (self.egl) |*old| {
             old.deinit();
         }
+
+        self.screen_width = android_binds.ANativeWindow_getWidth(window);
+        self.screen_height = android_binds.ANativeWindow_getHeight(window);
+
         self.egl = EGLContext.init(window, .gles2) catch |err| blk: {
             std.log.err("Failed to initialize EGL for window: {}\n", .{err});
             break :blk null;

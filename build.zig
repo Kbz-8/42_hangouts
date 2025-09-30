@@ -65,6 +65,7 @@ pub fn build(b: *std.Build) void {
                 .target = target,
             });
             exe.root_module.addImport("android", android_dep.module("android"));
+            exe.root_module.linkSystemLibrary("android", .{});
             exe.root_module.linkSystemLibrary("EGL", .{});
             exe.root_module.linkSystemLibrary("GLESv2", .{});
 
