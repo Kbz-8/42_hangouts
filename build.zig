@@ -44,7 +44,6 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
             .root_source_file = b.path("src/entryPoint.zig"),
-            .link_libc = true,
         });
 
         var exe: *std.Build.Step.Compile = if (target.result.abi.isAndroid()) b.addLibrary(.{
@@ -74,8 +73,6 @@ pub fn build(b: *std.Build) void {
             exe.root_module.linkSystemLibrary("GLESv2", .{});
 
             apk.addArtifact(exe);
-        } else {
-            unreachable;
         }
     }
     if (android_apk) |apk| {
