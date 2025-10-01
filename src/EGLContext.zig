@@ -115,21 +115,21 @@ pub const EGLContext = struct {
         self.* = undefined;
     }
 
-    pub fn swapBuffers(self: Self) !void {
+    pub fn swapBuffers(self: *const Self) !void {
         if (c.eglSwapBuffers(self.display, self.surface) == c.EGL_FALSE) {
             std.log.err("Error: eglMakeCurrent failed: 0x{X:0>4}\n", .{c.eglGetError()});
             return error.EglFailure;
         }
     }
 
-    pub fn makeCurrent(self: Self) !void {
+    pub fn makeCurrent(self: *const Self) !void {
         if (c.eglMakeCurrent(self.display, self.surface, self.surface, self.context) == c.EGL_FALSE) {
             std.log.err("Error: eglMakeCurrent failed: 0x{X:0>4}\n", .{c.eglGetError()});
             return error.EglFailure;
         }
     }
 
-    pub fn release(self: Self) void {
+    pub fn release(self: *const Self) void {
         if (c.eglMakeCurrent(self.display, self.surface, self.surface, null) == c.EGL_FALSE) {
             std.log.err("Error: eglMakeCurrent failed: 0x{X:0>4}\n", .{c.eglGetError()});
         }

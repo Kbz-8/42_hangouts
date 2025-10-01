@@ -31,8 +31,7 @@ fn nativeActivityOnCreate(activity: *android_binds.ANativeActivity, rawSavedStat
     else
         &[0]u8{};
 
-    const allocator = std.heap.c_allocator;
-    _ = MainActivity.init(activity, savedState, allocator) catch |err| {
+    _ = MainActivity.init(activity, savedState) catch |err| {
         std.log.err("ANativeActivity_onCreate: error within nativeActivityOnCreate: {s}", .{@errorName(err)});
         return;
     };

@@ -6,11 +6,13 @@ const AndroidApp = @import("AndroidApp.zig").AndroidApp;
 
 pub const MainActivity = struct {
     const Self = @This();
+    var app_allocator: std.heap.ThreadSafeAllocator = .{ .child_allocator = std.heap.c_allocator };
 
     app: *AndroidApp,
-    allocator: std.mem.Allocator,
 
-    pub fn init(activity: *android_binds.ANativeActivity, savedState: []const u8, allocator: std.mem.Allocator) !Self {
+    pub fn init(activity: *android_binds.ANativeActivity, savedState: []const u8) !Self {
+        var allocator = app_allocator.allocator();
+
         const app = try allocator.create(AndroidApp);
         errdefer allocator.destroy(app);
 
@@ -22,7 +24,6 @@ pub const MainActivity = struct {
 
         return .{
             .app = app,
-            .allocator = allocator,
         };
     }
 
@@ -63,7 +64,7 @@ pub const MainActivity = struct {
                 const instance = activity.instance orelse return;
                 const app: *App = @ptrCast(@alignCast(instance));
                 app.deinit();
-                std.heap.c_allocator.destroy(app);
+                app_allocator.allocator().destroy(app);
             }
             fn onStart(activity: *android_binds.ANativeActivity) callconv(.c) void {
                 invoke(activity, "onStart", .{});
