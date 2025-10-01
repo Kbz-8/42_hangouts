@@ -99,18 +99,6 @@ pub const AndroidApp = struct {
                 c.glClearColor(0.2, 0.3, 0.3, 1.0);
                 c.glClear(c.GL_COLOR_BUFFER_BIT);
 
-                {
-                    gui.beginFrame(@floatFromInt(self.screen_width), @floatFromInt(self.screen_height), .{
-                        .mouse_pos = .{ .x = 0, .y = 0 },
-                        .mouse_down = false,
-                        .mouse_pressed = false,
-                        .mouse_released = false,
-                    });
-
-                    gui.endWindow();
-                    gui.endFrame();
-                }
-
                 try egl.swapBuffers();
             }
         }
