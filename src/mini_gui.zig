@@ -1,4 +1,5 @@
 const std = @import("std");
+const glutils = @import("glutils.zig");
 
 const c = @cImport({
     @cInclude("GLES2/gl2.h");
@@ -16,6 +17,9 @@ const Vertex = extern struct {
     g: u8,
     b: u8,
     a: u8,
+
+    u: f32,
+    v: f32,
 };
 
 fn abgr(r: u8, g: u8, b: u8, a: u8) u32 {
@@ -30,13 +34,13 @@ pub const Style = struct {
 
     window_padding: Vec2 = .{ .x = 8, .y = 8 },
     item_spacing: Vec2 = .{ .x = 6, .y = 6 },
-    frame_rounding: f32 = 4.0, // kept for API parity (no path AA here)
+    frame_rounding: f32 = 4.0,
     frame_height: f32 = 28.0,
 };
 
 pub const Input = struct {
-    mouse_pos: Vec2, // in pixels
-    mouse_down: bool, // left
+    mouse_pos: Vec2,
+    mouse_down: bool,
     mouse_released: bool,
 };
 
@@ -53,13 +57,10 @@ const Batch = struct {
             .verts = undefined,
             .indices = undefined,
         };
-        std.log.debug("test1", .{});
         self.indices = try std.ArrayList(u16).initCapacity(allocator, 8192);
         errdefer self.indices.deinit(allocator);
-        std.log.debug("test2", .{});
         self.verts = try std.ArrayList(Vertex).initCapacity(allocator, 4096);
         errdefer self.verts.deinit(allocator);
-        std.log.debug("test3", .{});
         return self;
     }
 
@@ -70,7 +71,6 @@ const Batch = struct {
     }
 
     fn addQuad(self: *Self, r: Rect, color: u32) !void {
-        // unpack ABGR to bytes
         const r8: u8 = @intCast(color & 0xFF);
         const g8: u8 = @intCast((color >> 8) & 0xFF);
         const b8: u8 = @intCast((color >> 16) & 0xFF);
@@ -79,10 +79,10 @@ const Batch = struct {
         const base: u16 = @intCast(self.verts.items.len);
 
         try self.verts.appendSlice(self.allocator, &[_]Vertex{
-            .{ .x = r.x, .y = r.y, .r = r8, .g = g8, .b = b8, .a = a8 },
-            .{ .x = r.x + r.w, .y = r.y, .r = r8, .g = g8, .b = b8, .a = a8 },
-            .{ .x = r.x + r.w, .y = r.y + r.h, .r = r8, .g = g8, .b = b8, .a = a8 },
-            .{ .x = r.x, .y = r.y + r.h, .r = r8, .g = g8, .b = b8, .a = a8 },
+            .{ .x = r.x, .y = r.y, .r = r8, .g = g8, .b = b8, .a = a8, .u = 0, .v = 0 },
+            .{ .x = r.x + r.w, .y = r.y, .r = r8, .g = g8, .b = b8, .a = a8, .u = 0, .v = 0 },
+            .{ .x = r.x + r.w, .y = r.y + r.h, .r = r8, .g = g8, .b = b8, .a = a8, .u = 0, .v = 0 },
+            .{ .x = r.x, .y = r.y + r.h, .r = r8, .g = g8, .b = b8, .a = a8, .u = 0, .v = 0 },
         });
 
         try self.indices.appendSlice(self.allocator, &[_]u16{
@@ -92,81 +92,22 @@ const Batch = struct {
     }
 };
 
-const Program = struct {
+const GuiProgram = struct {
     prog: c.GLuint = 0,
     a_pos: c.GLint = -1,
     a_col: c.GLint = -1,
+    a_uv: c.GLint = -1,
     u_screen: c.GLint = -1,
 };
-
-fn compileShader(ty: c.GLenum, src: []const u8) !c.GLuint {
-    const sh = c.glCreateShader(ty);
-    errdefer c.glDeleteShader(sh);
-    c.glShaderSource(sh, 1, @as([*c]const [*c]const u8, @ptrCast(&src)), null);
-    c.glCompileShader(sh);
-    var status: c.GLint = 0;
-    c.glGetShaderiv(sh, c.GL_COMPILE_STATUS, &status);
-    if (status == 0) {
-        var buffer: [4096]u8 = undefined;
-        var size: c.GLsizei = undefined;
-        c.glGetShaderInfoLog(sh, 4096, &size, &buffer);
-        std.log.err("\nFailed to compile shader: {s}\n", .{buffer[0..@as(usize, @intCast(size))]});
-        return error.GLFailedToCompileShader;
-    }
-    return sh;
-}
-
-fn linkProgram(vs: c.GLuint, fs: c.GLuint) !c.GLuint {
-    const p = c.glCreateProgram();
-    errdefer c.glDeleteProgram(p);
-    c.glAttachShader(p, vs);
-    c.glAttachShader(p, fs);
-    c.glLinkProgram(p);
-    var status: c.GLint = 0;
-    c.glGetProgramiv(p, c.GL_LINK_STATUS, &status);
-    if (status == 0) {
-        var buffer: [4096]u8 = undefined;
-        var size: c.GLsizei = undefined;
-        c.glGetProgramInfoLog(p, 4096, &size, &buffer);
-        std.log.err("\nFailed to link program: {s}\n", .{buffer[0..@as(usize, @intCast(size))]});
-        return error.GLFailedToLinkProgram;
-    }
-    return p;
-}
-
-fn makeProgram() !Program {
-    const vs_src = @embedFile("shaders/gui.vert");
-    const fs_src = @embedFile("shaders/gui.frag");
-
-    const vs = try compileShader(c.GL_VERTEX_SHADER, vs_src);
-    defer c.glDeleteShader(vs);
-
-    const fs = try compileShader(c.GL_FRAGMENT_SHADER, fs_src);
-    defer c.glDeleteShader(fs);
-
-    const prog = try linkProgram(vs, fs);
-
-    const a_pos = c.glGetAttribLocation(prog, "a_pos");
-    const a_col = c.glGetAttribLocation(prog, "a_col");
-    const u_screen = c.glGetUniformLocation(prog, "u_screen");
-
-    return .{
-        .prog = prog,
-        .a_pos = a_pos,
-        .a_col = a_col,
-        .u_screen = u_screen,
-    };
-}
 
 pub const Gui = struct {
     const Self = @This();
 
     allocator: std.mem.Allocator,
     style: Style = .{},
-    program: Program = .{},
+    program: GuiProgram = .{},
     vbo: c.GLuint = 0,
     ibo: c.GLuint = 0,
-    vao_like_bound: bool = false, // ES2 doesn't have VAOs
     batch: Batch,
     display_size: Vec2 = .{ .x = 0, .y = 0 },
     last_height_size: f32 = 0,
@@ -197,8 +138,19 @@ pub const Gui = struct {
             .vbo = 0,
             .ibo = 0,
         };
-        self.program = try makeProgram();
+
+        const vertex_source = @embedFile("shaders/gui.vert");
+        const fragment_source = @embedFile("shaders/gui.frag");
+
+        const program = try glutils.compileProgram(vertex_source, fragment_source);
         errdefer c.glDeleteProgram(self.program.prog);
+        self.program = .{
+            .prog = program,
+            .a_pos = c.glGetAttribLocation(program, "a_pos"),
+            .a_col = c.glGetAttribLocation(program, "a_col"),
+            .a_uv = c.glGetAttribLocation(program, "a_uv"),
+            .u_screen = c.glGetUniformLocation(program, "u_screen"),
+        };
         self.batch = try Batch.init(allocator);
         errdefer self.batch.deinit();
         self.windows = try std.ArrayList(Window).initCapacity(allocator, 8);
@@ -226,7 +178,7 @@ pub const Gui = struct {
         self.batch.indices.clearRetainingCapacity();
         self.windows.clearRetainingCapacity();
         self.current = null;
-        if (!self.input.mouse_down)
+        if (!self.input.mouse_down and !self.input.mouse_released)
             self.active_id = 0;
     }
 
@@ -250,8 +202,10 @@ pub const Gui = struct {
 
         c.glEnableVertexAttribArray(@intCast(self.program.a_pos));
         c.glEnableVertexAttribArray(@intCast(self.program.a_col));
+        c.glEnableVertexAttribArray(@intCast(self.program.a_uv));
         c.glVertexAttribPointer(@intCast(self.program.a_pos), 2, c.GL_FLOAT, c.GL_FALSE, @sizeOf(Vertex), @ptrFromInt(@offsetOf(Vertex, "x")));
         c.glVertexAttribPointer(@intCast(self.program.a_col), 4, c.GL_UNSIGNED_BYTE, c.GL_TRUE, @sizeOf(Vertex), @ptrFromInt(@offsetOf(Vertex, "r")));
+        c.glVertexAttribPointer(@intCast(self.program.a_uv), 2, c.GL_FLOAT, c.GL_FALSE, @sizeOf(Vertex), @ptrFromInt(@offsetOf(Vertex, "u")));
 
         if (self.batch.indices.items.len > 0) {
             c.glDrawElements(c.GL_TRIANGLES, @intCast(self.batch.indices.items.len), c.GL_UNSIGNED_SHORT, @ptrFromInt(0));
@@ -322,10 +276,10 @@ pub const Gui = struct {
 
     pub fn separator(self: *Self) void {
         if (self.current) |w| {
-            const x = w.rect.x + self.style.window_padding.x;
-            const wpx = w.rect.w - 2 * self.style.window_padding.x;
+            const x = w.rect.x + 3 * self.style.window_padding.x;
+            const wpx = w.rect.w - 6 * self.style.window_padding.x;
             const y = w.cursor.y + self.style.frame_height * 0.5;
-            _ = self.batch.addQuad(.{ .x = x, .y = y, .w = wpx, .h = 1.0 }, self.style.separator_color) catch {};
+            _ = self.batch.addQuad(.{ .x = x, .y = y, .w = wpx, .h = 2.0 }, self.style.separator_color) catch {};
             self.advanceCursor(.{ .x = wpx, .y = 20.0 });
         }
     }
@@ -335,7 +289,12 @@ pub const Gui = struct {
             return false;
         var w = self.current.?;
 
-        const r = Rect{ .x = w.cursor.x, .y = w.cursor.y, .w = size.x, .h = size.y };
+        const r: Rect = .{
+            .x = w.cursor.x,
+            .y = w.cursor.y,
+            .w = size.x,
+            .h = if (size.y == 0) self.style.frame_height else size.y,
+        };
         // Track max X for sameLine
         w.content_max_x = if (w.content_max_x > r.x + r.w) w.content_max_x else r.x + r.w;
 
@@ -354,17 +313,10 @@ pub const Gui = struct {
         if (self.input.mouse_released) {
             if (self.active_id == id and mouse_over)
                 clicked = true;
-            if (!self.input.mouse_down)
-                self.active_id = 0;
         }
 
         self.advanceCursor(size);
         return clicked;
-    }
-
-    // Convenience overload: button using style.frame_height and given width
-    pub fn buttonWidth(self: *Self, id: u32, width: f32) bool {
-        return self.button(id, .{ .x = width, .y = self.style.frame_height });
     }
 
     pub fn hashId(bytes: []const u8) u32 {
@@ -372,7 +324,7 @@ pub const Gui = struct {
         var h: u32 = 0xdeadbeef;
         for (bytes) |b| {
             h ^= @as(u32, b);
-            h *%= 16777619;
+            h *%= 0xbaadcafe;
         }
         return h;
     }

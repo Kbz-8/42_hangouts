@@ -105,8 +105,6 @@ pub const AndroidApp = struct {
                 self.touch_state = .pressed;
             } else if (event_type == .AMOTION_EVENT_ACTION_UP) {
                 self.touch_state = .released;
-            } else {
-                self.touch_state = .idle;
             }
         }
         return false;
@@ -131,6 +129,10 @@ pub const AndroidApp = struct {
             {
                 self.input_lock.lock();
                 defer self.input_lock.unlock();
+
+                if (self.touch_state == .released) {
+                    self.touch_state = .idle;
+                }
 
                 if (self.input) |input| {
                     var event: ?*android_binds.AInputEvent = undefined;
@@ -180,14 +182,16 @@ pub const AndroidApp = struct {
                             .mouse_released = self.touch_state == .released,
                         });
 
-                        if (gui.beginWindow(mini_gui.Gui.hashId("main"), .{ .x = 100, .y = 100, .w = 720, .h = 400 })) {
-                            if (gui.button(mini_gui.Gui.hashId("Play"), .{ .x = 320, .y = 28 })) {}
+                        if (gui.beginWindow(mini_gui.Gui.hashId("main"), .{ .x = 50, .y = 300, .w = @floatFromInt(self.screen_width - 100), .h = @floatFromInt(self.screen_height - 600) })) {
+                            if (gui.button(mini_gui.Gui.hashId("Play"), .{ .x = @floatFromInt(@divExact(self.screen_width, 3)), .y = @floatFromInt(@divExact(self.screen_height, 5)) })) {
+                                std.log.debug("test", .{});
+                            }
                             gui.sameLine(null);
-                            if (gui.button(mini_gui.Gui.hashId("Stop"), .{ .x = 320, .y = 28 })) {}
+                            if (gui.button(mini_gui.Gui.hashId("Stop"), .{ .x = @floatFromInt(@divExact(self.screen_width, 3)), .y = @floatFromInt(@divExact(self.screen_height, 5)) })) {
+                                std.log.debug("test2", .{});
+                            }
 
                             gui.separator();
-
-                            if (gui.buttonWidth(mini_gui.Gui.hashId("WideButton"), 260)) {}
 
                             gui.endWindow();
                         }
