@@ -1,4 +1,5 @@
 const std = @import("std");
+const zm = @import("zmath");
 const glutils = @import("glutils.zig");
 
 const c = @cImport({
@@ -9,17 +10,10 @@ pub const Vec2 = struct { x: f32, y: f32 };
 pub const Rect = struct { x: f32, y: f32, w: f32, h: f32 };
 
 const Vertex = extern struct {
-    // NOTE: top-left origin pixel coords, converted in VS
-    x: f32,
-    y: f32,
-    // ABGR packed (matches normalized UNSIGNED_BYTE in ES2)
-    r: u8,
-    g: u8,
-    b: u8,
-    a: u8,
-
-    u: f32,
-    v: f32,
+    pos: @Vector(2, f32),
+    col: @Vector(4, u8),
+    uv: @Vector(2, f32),
+    is_textured: f32, // boolean
 };
 
 fn abgr(r: u8, g: u8, b: u8, a: u8) u32 {
@@ -43,6 +37,14 @@ pub const Input = struct {
     mouse_down: bool,
     mouse_released: bool,
 };
+
+fn componentCount(comptime T: type) comptime_int {
+    const ti = @typeInfo(T);
+    return switch (ti) {
+        .vector => |v| v.len,
+        else => 1,
+    };
+}
 
 const Batch = struct {
     const Self = @This();
@@ -70,34 +72,59 @@ const Batch = struct {
         self.* = undefined;
     }
 
+    fn pushQuad(self: *Self, v: [4]Vertex) !void {
+        const base: u16 = @intCast(self.verts.items.len);
+        try self.verts.appendSlice(self.allocator, &v);
+        try self.indices.appendSlice(self.allocator, &[_]u16{
+            base, base + 1, base + 2,
+            base, base + 2, base + 3,
+        });
+    }
+
     fn addQuad(self: *Self, r: Rect, color: u32) !void {
         const r8: u8 = @intCast(color & 0xFF);
         const g8: u8 = @intCast((color >> 8) & 0xFF);
         const b8: u8 = @intCast((color >> 16) & 0xFF);
         const a8: u8 = @intCast((color >> 24) & 0xFF);
 
-        const base: u16 = @intCast(self.verts.items.len);
-
-        try self.verts.appendSlice(self.allocator, &[_]Vertex{
-            .{ .x = r.x, .y = r.y, .r = r8, .g = g8, .b = b8, .a = a8, .u = 0, .v = 0 },
-            .{ .x = r.x + r.w, .y = r.y, .r = r8, .g = g8, .b = b8, .a = a8, .u = 0, .v = 0 },
-            .{ .x = r.x + r.w, .y = r.y + r.h, .r = r8, .g = g8, .b = b8, .a = a8, .u = 0, .v = 0 },
-            .{ .x = r.x, .y = r.y + r.h, .r = r8, .g = g8, .b = b8, .a = a8, .u = 0, .v = 0 },
+        // zig fmt: off
+        try self.pushQuad(.{
+            .{ .pos = .{ r.x,       r.y       }, .col = .{ r8, g8, b8, a8 }, .uv = .{ 0, 0 }, .is_textured = 0 },
+            .{ .pos = .{ r.x + r.w, r.y       }, .col = .{ r8, g8, b8, a8 }, .uv = .{ 0, 0 }, .is_textured = 0 },
+            .{ .pos = .{ r.x + r.w, r.y + r.h }, .col = .{ r8, g8, b8, a8 }, .uv = .{ 0, 0 }, .is_textured = 0 },
+            .{ .pos = .{ r.x,       r.y + r.h }, .col = .{ r8, g8, b8, a8 }, .uv = .{ 0, 0 }, .is_textured = 0 },
         });
+        // zig fmt: on
+    }
 
-        try self.indices.appendSlice(self.allocator, &[_]u16{
-            base, base + 1, base + 2,
-            base, base + 2, base + 3,
+    fn addTexturedQuad(self: *Self, r: Rect, u_0: f32, v_0: f32, u_1: f32, v_1: f32, color: u32) !void {
+        const r8: u8 = @intCast(color & 0xFF);
+        const g8: u8 = @intCast((color >> 8) & 0xFF);
+        const b8: u8 = @intCast((color >> 16) & 0xFF);
+        const a8: u8 = @intCast((color >> 24) & 0xFF);
+        // zig fmt: off
+        try self.pushQuad(.{
+            .{ .pos = .{ r.x,       r.y       }, .col = .{ r8, g8, b8, a8 }, .uv = .{ u_0, v_0 }, .is_textured = 1 },
+            .{ .pos = .{ r.x + r.w, r.y       }, .col = .{ r8, g8, b8, a8 }, .uv = .{ u_1, v_0 }, .is_textured = 1 },
+            .{ .pos = .{ r.x + r.w, r.y + r.h }, .col = .{ r8, g8, b8, a8 }, .uv = .{ u_1, v_1 }, .is_textured = 1 },
+            .{ .pos = .{ r.x,       r.y + r.h }, .col = .{ r8, g8, b8, a8 }, .uv = .{ u_0, v_1 }, .is_textured = 1 },
         });
+        // zig fmt: on
     }
 };
 
 const GuiProgram = struct {
     prog: c.GLuint = 0,
-    a_pos: c.GLint = -1,
-    a_col: c.GLint = -1,
-    a_uv: c.GLint = -1,
-    u_screen: c.GLint = -1,
+    a: struct {
+        pos: c.GLint = -1,
+        col: c.GLint = -1,
+        uv: c.GLint = -1,
+        is_textured: c.GLint = -1,
+    } = .{},
+    u: struct {
+        screen: c.GLint = -1,
+        texture: c.GLint = -1,
+    } = .{},
 };
 
 pub const Gui = struct {
@@ -112,14 +139,11 @@ pub const Gui = struct {
     display_size: Vec2 = .{ .x = 0, .y = 0 },
     last_height_size: f32 = 0,
 
-    // input
     input: Input = .{ .mouse_pos = .{ .x = 0, .y = 0 }, .mouse_down = false, .mouse_released = false },
 
-    // active window
     current: ?*Window = null,
     windows: std.ArrayList(Window),
 
-    // id / hot/active
     active_id: u32 = 0,
 
     pub const Window = struct {
@@ -144,13 +168,15 @@ pub const Gui = struct {
 
         const program = try glutils.compileProgram(vertex_source, fragment_source);
         errdefer c.glDeleteProgram(self.program.prog);
-        self.program = .{
-            .prog = program,
-            .a_pos = c.glGetAttribLocation(program, "a_pos"),
-            .a_col = c.glGetAttribLocation(program, "a_col"),
-            .a_uv = c.glGetAttribLocation(program, "a_uv"),
-            .u_screen = c.glGetUniformLocation(program, "u_screen"),
-        };
+
+        self.program = .{ .prog = program };
+        inline for (std.meta.fields(@TypeOf(self.program.a))) |f| {
+            @field(self.program.a, f.name) = c.glGetAttribLocation(self.program.prog, "a_" ++ f.name);
+        }
+        inline for (std.meta.fields(@TypeOf(self.program.u))) |f| {
+            @field(self.program.u, f.name) = c.glGetAttribLocation(self.program.prog, "u_" ++ f.name);
+        }
+
         self.batch = try Batch.init(allocator);
         errdefer self.batch.deinit();
         self.windows = try std.ArrayList(Window).initCapacity(allocator, 8);
@@ -184,7 +210,8 @@ pub const Gui = struct {
 
     pub fn endFrame(self: *Self) void {
         c.glUseProgram(self.program.prog);
-        c.glUniform2f(self.program.u_screen, self.display_size.x, self.display_size.y);
+        std.log.debug("{} {}", .{ self.display_size.x, self.display_size.y });
+        c.glUniform2f(self.program.u.screen, self.display_size.x, self.display_size.y);
 
         // No textures, just colored triangles
         c.glDisable(c.GL_CULL_FACE);
@@ -200,23 +227,18 @@ pub const Gui = struct {
         c.glBindBuffer(c.GL_ELEMENT_ARRAY_BUFFER, self.ibo);
         c.glBufferData(c.GL_ELEMENT_ARRAY_BUFFER, ibsize, self.batch.indices.items.ptr, c.GL_DYNAMIC_DRAW);
 
-        c.glEnableVertexAttribArray(@intCast(self.program.a_pos));
-        c.glEnableVertexAttribArray(@intCast(self.program.a_col));
-        c.glEnableVertexAttribArray(@intCast(self.program.a_uv));
-        c.glVertexAttribPointer(@intCast(self.program.a_pos), 2, c.GL_FLOAT, c.GL_FALSE, @sizeOf(Vertex), @ptrFromInt(@offsetOf(Vertex, "x")));
-        c.glVertexAttribPointer(@intCast(self.program.a_col), 4, c.GL_UNSIGNED_BYTE, c.GL_TRUE, @sizeOf(Vertex), @ptrFromInt(@offsetOf(Vertex, "r")));
-        c.glVertexAttribPointer(@intCast(self.program.a_uv), 2, c.GL_FLOAT, c.GL_FALSE, @sizeOf(Vertex), @ptrFromInt(@offsetOf(Vertex, "u")));
+        inline for (std.meta.fields(@TypeOf(self.program.a))) |f| {
+            const T = @FieldType(Vertex, f.name);
+            const size = componentCount(T);
+            const gl_type = glutils.typeToGLenum(T);
+
+            c.glEnableVertexAttribArray(@intCast(@field(self.program.a, f.name)));
+            c.glVertexAttribPointer(@intCast(@field(self.program.a, f.name)), size, gl_type, if (gl_type != c.GL_FLOAT) c.GL_TRUE else c.GL_FALSE, @sizeOf(Vertex), @ptrFromInt(@offsetOf(Vertex, f.name)));
+        }
 
         if (self.batch.indices.items.len > 0) {
             c.glDrawElements(c.GL_TRIANGLES, @intCast(self.batch.indices.items.len), c.GL_UNSIGNED_SHORT, @ptrFromInt(0));
         }
-
-        c.glDisableVertexAttribArray(@intCast(self.program.a_pos));
-        c.glDisableVertexAttribArray(@intCast(self.program.a_col));
-        c.glBindBuffer(c.GL_ARRAY_BUFFER, 0);
-        c.glBindBuffer(c.GL_ELEMENT_ARRAY_BUFFER, 0);
-        c.glUseProgram(0);
-        c.glDisable(c.GL_SCISSOR_TEST);
     }
 
     pub fn beginWindow(self: *Self, id: u32, rect: Rect) bool {

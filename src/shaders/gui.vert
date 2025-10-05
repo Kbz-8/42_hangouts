@@ -5,11 +5,13 @@ precision mediump float;
 attribute vec2 a_pos;
 attribute vec4 a_col;
 attribute vec2 a_uv;
+attribute float a_is_textured;
 
 uniform vec2 u_screen;
 
 varying vec4 v_col;
 varying vec2 v_uv;
+varying float v_is_textured;
 
 void main()
 {
@@ -21,4 +23,5 @@ void main()
 	gl_Position = vec4(ndc, 0.0, 1.0);
 	v_col = a_col;
 	v_uv = a_uv;
+	v_is_textured = a_is_textured;
 }

@@ -2,7 +2,7 @@ const std = @import("std");
 const android = @import("android");
 const builtin = @import("builtin");
 const android_binds = @import("android_binds.zig");
-const MainActivity = @import("MainActivity.zig").MainActivity;
+const MainActivity = @import("MainActivity.zig");
 
 comptime {
     if (builtin.abi.isAndroid()) {
