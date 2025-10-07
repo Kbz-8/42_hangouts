@@ -38,6 +38,14 @@ pub const Input = struct {
     mouse_released: bool,
 };
 
+pub const Font = struct {
+    tex: c.GLuint,
+    cell_size: Vec2, // glyph size in pixels, e.g. 8x8
+    tex_size: Vec2, // atlas size in pixels, e.g. 128x48
+    first_code: u8 = 32, // ASCII 32
+    last_code: u8 = 126, // ASCII 126
+};
+
 fn componentCount(comptime T: type) comptime_int {
     const ti = @typeInfo(T);
     return switch (ti) {
@@ -89,10 +97,10 @@ const Batch = struct {
         const a8: u8 = @intCast((color >> 24) & 0xFF);
         // zig fmt: off
         try self.pushQuad(.{
-            .{ .pos = .{ r.x,       r.y       }, .col = .{ r8, g8, b8, a8 }, .uv = .{ 0.0, 0.0 }, .is_textured = 0 },
-            .{ .pos = .{ r.x + r.w, r.y       }, .col = .{ r8, g8, b8, a8 }, .uv = .{ 0.0, 0.0 }, .is_textured = 0 },
-            .{ .pos = .{ r.x + r.w, r.y + r.h }, .col = .{ r8, g8, b8, a8 }, .uv = .{ 0.0, 0.0 }, .is_textured = 0 },
-            .{ .pos = .{ r.x,       r.y + r.h }, .col = .{ r8, g8, b8, a8 }, .uv = .{ 0.0, 0.0 }, .is_textured = 0 },
+            .{ .pos = .{ r.x,       r.y       }, .col = .{ r8, g8, b8, a8 }, .uv = .{ 0.0, 0.0 }, .is_textured = 0.0 },
+            .{ .pos = .{ r.x + r.w, r.y       }, .col = .{ r8, g8, b8, a8 }, .uv = .{ 0.0, 0.0 }, .is_textured = 0.0 },
+            .{ .pos = .{ r.x + r.w, r.y + r.h }, .col = .{ r8, g8, b8, a8 }, .uv = .{ 0.0, 0.0 }, .is_textured = 0.0 },
+            .{ .pos = .{ r.x,       r.y + r.h }, .col = .{ r8, g8, b8, a8 }, .uv = .{ 0.0, 0.0 }, .is_textured = 0.0 },
         });
         // zig fmt: on
     }
@@ -104,10 +112,10 @@ const Batch = struct {
         const a8: u8 = @intCast((color >> 24) & 0xFF);
         // zig fmt: off
         try self.pushQuad(.{
-            .{ .pos = .{ r.x,       r.y       }, .col = .{ r8, g8, b8, a8 }, .uv = .{ u_0, v_0 }, .is_textured = 1 },
-            .{ .pos = .{ r.x + r.w, r.y       }, .col = .{ r8, g8, b8, a8 }, .uv = .{ u_1, v_0 }, .is_textured = 1 },
-            .{ .pos = .{ r.x + r.w, r.y + r.h }, .col = .{ r8, g8, b8, a8 }, .uv = .{ u_1, v_1 }, .is_textured = 1 },
-            .{ .pos = .{ r.x,       r.y + r.h }, .col = .{ r8, g8, b8, a8 }, .uv = .{ u_0, v_1 }, .is_textured = 1 },
+            .{ .pos = .{ r.x,       r.y       }, .col = .{ r8, g8, b8, a8 }, .uv = .{ u_0, v_0 }, .is_textured = 1.0 },
+            .{ .pos = .{ r.x + r.w, r.y       }, .col = .{ r8, g8, b8, a8 }, .uv = .{ u_1, v_0 }, .is_textured = 1.0 },
+            .{ .pos = .{ r.x + r.w, r.y + r.h }, .col = .{ r8, g8, b8, a8 }, .uv = .{ u_1, v_1 }, .is_textured = 1.0 },
+            .{ .pos = .{ r.x,       r.y + r.h }, .col = .{ r8, g8, b8, a8 }, .uv = .{ u_0, v_1 }, .is_textured = 1.0 },
         });
         // zig fmt: on
     }
@@ -138,6 +146,8 @@ pub const Gui = struct {
     batch: Batch,
     display_size: Vec2 = .{ .x = 0, .y = 0 },
     last_height_size: f32 = 0,
+
+    font: ?Font = null,
 
     input: Input = .{ .mouse_pos = .{ .x = 0, .y = 0 }, .mouse_down = false, .mouse_released = false },
 
@@ -217,7 +227,12 @@ pub const Gui = struct {
         c.glEnable(c.GL_BLEND);
         c.glBlendFuncSeparate(c.GL_SRC_ALPHA, c.GL_ONE_MINUS_SRC_ALPHA, c.GL_ONE, c.GL_ONE_MINUS_SRC_ALPHA);
 
-        c.glBindTexture(c.GL_TEXTURE_2D, 0);
+        if (self.font) |font| {
+            c.glActiveTexture(c.GL_TEXTURE0);
+            c.glBindTexture(c.GL_TEXTURE_2D, font.tex);
+        } else {
+            c.glBindTexture(c.GL_TEXTURE_2D, 0);
+        }
 
         const vbsize = @as(c.GLsizeiptr, @intCast(self.batch.verts.items.len * @sizeOf(Vertex)));
         c.glBindBuffer(c.GL_ARRAY_BUFFER, self.vbo);
@@ -251,7 +266,8 @@ pub const Gui = struct {
         c.glDisable(c.GL_SCISSOR_TEST);
     }
 
-    pub fn beginWindow(self: *Self, id: u32, rect: Rect) bool {
+    pub fn beginWindow(self: *Self, label: []const u8, rect: Rect) bool {
+        const id = hashId(label);
         const w = Window{
             .id = id,
             .rect = rect,
@@ -316,7 +332,7 @@ pub const Gui = struct {
         }
     }
 
-    pub fn button(self: *Self, id: u32, size: Vec2) bool {
+    pub fn button(self: *Self, label: []const u8, size: Vec2) bool {
         if (self.current == null)
             return false;
         var w = self.current.?;
@@ -333,6 +349,7 @@ pub const Gui = struct {
         const mouse_over = pointInRect(self.input.mouse_pos, r);
 
         var col = self.style.button_color;
+        const id = hashId(label);
         if (id == self.active_id) {
             col = self.style.button_active;
         }
@@ -351,7 +368,57 @@ pub const Gui = struct {
         return clicked;
     }
 
-    pub fn hashId(bytes: []const u8) u32 {
+    pub fn SetFont(self: *Gui, font: Font) void {
+        self.font = font;
+    }
+
+    pub fn Text(self: *Gui, pos: Vec2, color: u32, s: []const u8) void {
+        if (self.font == null)
+            return;
+        const font = self.font.?;
+        var x = pos.x;
+        var y = pos.y;
+
+        const cols_f = font.tex_size.x / font.cell_size.x;
+        const cols: i32 = @intFromFloat(@floor(cols_f));
+
+        for (s) |ch| {
+            if (ch == '\n') {
+                x = pos.x;
+                y += font.cell_size.y;
+                continue;
+            }
+            if (ch < font.first_code or ch > font.last_code) {
+                x += font.cell_size.x;
+                continue;
+            }
+
+            const idx: i32 = @intCast(ch - font.first_code);
+            const cx: i32 = @mod(idx, cols);
+            const cy: i32 = @divTrunc(idx, cols);
+
+            const tx = @as(f32, @floatFromInt(cx)) * font.cell_size.x;
+            const ty = @as(f32, @floatFromInt(cy)) * font.cell_size.y;
+
+            const u_0 = tx / font.tex_size.x;
+            const u_1 = (tx + font.cell_size.x) / font.tex_size.x;
+
+            // top and bottom in our pixel space
+            const v_top = ty / font.tex_size.y;
+            const v_bot = (ty + font.cell_size.y) / font.tex_size.y;
+
+            // flip for GL: top -> 1 - top, bottom -> 1 - bottom
+            const vf0 = 1.0 - v_bot; // use as "top" after flip
+            const vf1 = 1.0 - v_top; // use as "bottom" after flip
+
+            const r = Rect{ .x = x, .y = y, .w = font.cell_size.x, .h = font.cell_size.y };
+            _ = self.batch.addTexturedQuad(r, u_0, vf0, u_1, vf1, color) catch {};
+
+            x += font.cell_size.x;
+        }
+    }
+
+    fn hashId(bytes: []const u8) u32 {
         // FNV-1a 32-bit
         var h: u32 = 0xdeadbeef;
         for (bytes) |b| {

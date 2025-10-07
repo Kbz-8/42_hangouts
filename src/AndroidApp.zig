@@ -4,6 +4,7 @@ const android = @import("android");
 const android_binds = @import("android_binds.zig");
 const EGLContext = @import("EGLContext.zig");
 const mini_gui = @import("mini_gui.zig");
+const font = @import("font.zig");
 
 const c = @cImport({
     @cInclude("EGL/egl.h");
@@ -121,6 +122,20 @@ fn mainLoop(self: *Self) !void {
         if (gui_context) |*gui|
             gui.deinit();
     }
+    const font_bitmap = @embedFile("font.bitfont");
+    const font_texture: c.GLuint = -1;
+    c.glGenTextures(1, &font_texture);
+    c.glBindTexture(c.GL_TEXTURE_2D, font_texture);
+    c.glPixelStorei(c.GL_UNPACK_ALIGNMENT, 1);
+    c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MIN_FILTER, c.GL_LINEAR);
+    c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_MAG_FILTER, c.GL_LINEAR);
+    c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_S, c.GL_CLAMP_TO_EDGE);
+    c.glTexParameteri(c.GL_TEXTURE_2D, c.GL_TEXTURE_WRAP_T, c.GL_CLAMP_TO_EDGE);
+
+    c.glTexImage2D(c.GL_TEXTURE_2D, 0, c.GL_RGBA, @intCast(atlas_w), @intCast(atlas_h), 0, c.GL_RGBA, c.GL_UNSIGNED_BYTE, &font_bitmap);
+
+    c.glBindTexture(c.GL_TEXTURE_2D, 0);
+    defer c.glDeleteTextures(1, &font_texture);
 
     while (@atomicLoad(bool, &self.running, .seq_cst)) {
         // Inputs processing
@@ -174,22 +189,31 @@ fn mainLoop(self: *Self) !void {
                 c.glClear(c.GL_COLOR_BUFFER_BIT);
 
                 if (gui_context) |*gui| {
+                    const font_descriptor = mini_gui.Font{
+                        .tex = font_texture,
+                        .cell_size = .{ .x = 8, .y = 8 },
+                        .tex_size = .{ .x = 128, .y = 48 }, // e.g., 16x6 grid
+                    };
+                    gui.SetFont(font_descriptor);
+
                     gui.beginFrame(@floatFromInt(self.screen_width), @floatFromInt(self.screen_height), .{
                         .mouse_pos = .{ .x = self.touch_x orelse 0, .y = self.touch_y orelse 0 },
                         .mouse_down = self.touch_state == .pressed,
                         .mouse_released = self.touch_state == .released,
                     });
 
-                    if (gui.beginWindow(mini_gui.Gui.hashId("main"), .{ .x = 50, .y = 300, .w = @floatFromInt(self.screen_width - 100), .h = @floatFromInt(self.screen_height - 600) })) {
-                        if (gui.button(mini_gui.Gui.hashId("Play"), .{ .x = @floatFromInt(@divExact(self.screen_width, 3)), .y = @floatFromInt(@divExact(self.screen_height, 5)) })) {
+                    if (gui.beginWindow("main", .{ .x = 50, .y = 300, .w = @floatFromInt(self.screen_width - 100), .h = @floatFromInt(self.screen_height - 600) })) {
+                        if (gui.button("Play", .{ .x = @floatFromInt(@divExact(self.screen_width, 3)), .y = @floatFromInt(@divExact(self.screen_height, 5)) })) {
                             std.log.debug("test", .{});
                         }
                         gui.sameLine(null);
-                        if (gui.button(mini_gui.Gui.hashId("Stop"), .{ .x = @floatFromInt(@divExact(self.screen_width, 3)), .y = @floatFromInt(@divExact(self.screen_height, 5)) })) {
+                        if (gui.button("Stop", .{ .x = @floatFromInt(@divExact(self.screen_width, 3)), .y = @floatFromInt(@divExact(self.screen_height, 5)) })) {
                             std.log.debug("test2", .{});
                         }
 
                         gui.separator();
+
+                        gui.Text(.{ .x = 70, .y = 600 }, 0xFFFFFFFF, "Hello!this is a test");
 
                         gui.endWindow();
                     }
