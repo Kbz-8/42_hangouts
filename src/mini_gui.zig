@@ -9,7 +9,7 @@ const c = @cImport({
 pub const Vec2 = struct { x: f32, y: f32 };
 pub const Rect = struct { x: f32, y: f32, w: f32, h: f32 };
 
-const Vertex = packed struct {
+const Vertex = extern struct {
     pos: @Vector(2, f32),
     col: @Vector(4, u8),
     uv: @Vector(2, f32),
@@ -42,6 +42,7 @@ fn componentCount(comptime T: type) comptime_int {
     const ti = @typeInfo(T);
     return switch (ti) {
         .vector => |v| v.len,
+        .array => |a| a.len,
         else => 1,
     };
 }
@@ -88,10 +89,10 @@ const Batch = struct {
         const a8: u8 = @intCast((color >> 24) & 0xFF);
         // zig fmt: off
         try self.pushQuad(.{
-            .{ .pos = .{ r.x,       r.y       }, .col = .{ r8, g8, b8, a8 }, .uv = .{ 0, 0 }, .is_textured = 0 },
-            .{ .pos = .{ r.x + r.w, r.y       }, .col = .{ r8, g8, b8, a8 }, .uv = .{ 0, 0 }, .is_textured = 0 },
-            .{ .pos = .{ r.x + r.w, r.y + r.h }, .col = .{ r8, g8, b8, a8 }, .uv = .{ 0, 0 }, .is_textured = 0 },
-            .{ .pos = .{ r.x,       r.y + r.h }, .col = .{ r8, g8, b8, a8 }, .uv = .{ 0, 0 }, .is_textured = 0 },
+            .{ .pos = .{ r.x,       r.y       }, .col = .{ r8, g8, b8, a8 }, .uv = .{ 0.0, 0.0 }, .is_textured = 0 },
+            .{ .pos = .{ r.x + r.w, r.y       }, .col = .{ r8, g8, b8, a8 }, .uv = .{ 0.0, 0.0 }, .is_textured = 0 },
+            .{ .pos = .{ r.x + r.w, r.y + r.h }, .col = .{ r8, g8, b8, a8 }, .uv = .{ 0.0, 0.0 }, .is_textured = 0 },
+            .{ .pos = .{ r.x,       r.y + r.h }, .col = .{ r8, g8, b8, a8 }, .uv = .{ 0.0, 0.0 }, .is_textured = 0 },
         });
         // zig fmt: on
     }
@@ -173,7 +174,7 @@ pub const Gui = struct {
             @field(self.program.a, f.name) = c.glGetAttribLocation(self.program.prog, "a_" ++ f.name);
         }
         inline for (std.meta.fields(@TypeOf(self.program.u))) |f| {
-            @field(self.program.u, f.name) = c.glGetAttribLocation(self.program.prog, "u_" ++ f.name);
+            @field(self.program.u, f.name) = c.glGetUniformLocation(self.program.prog, "u_" ++ f.name);
         }
 
         self.batch = try Batch.init(allocator);
@@ -230,11 +231,10 @@ pub const Gui = struct {
             const T = @FieldType(Vertex, f.name);
             const size = componentCount(T);
             const gl_type = glutils.typeToGLenum(T);
-
-            c.glEnableVertexAttribArray(@intCast(@field(self.program.a, f.name)));
             const offset = @offsetOf(Vertex, f.name);
-            std.log.debug("test {} {} {} {} {s}", .{ @sizeOf(Vertex), @sizeOf(@FieldType(Vertex, f.name)), offset, size, f.name });
+
             c.glVertexAttribPointer(@intCast(@field(self.program.a, f.name)), size, gl_type, if (gl_type != c.GL_FLOAT) c.GL_TRUE else c.GL_FALSE, @sizeOf(Vertex), @ptrFromInt(offset));
+            c.glEnableVertexAttribArray(@intCast(@field(self.program.a, f.name)));
         }
 
         if (self.batch.indices.items.len > 0) {

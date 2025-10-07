@@ -60,6 +60,7 @@ pub fn compileProgram(vertex_source: []const u8, fragment_source: []const u8) !c
 pub fn typeToGLenum(comptime T: type) c.GLenum {
     return switch (@typeInfo(T)) {
         .vector => |v| typeToGLenum(v.child),
+        .array => |a| typeToGLenum(a.child),
         .float => |f| switch (f.bits) {
             32 => c.GL_FLOAT,
             64 => @compileError("f64 isn't representable in GLES2 core (no GL_DOUBLE)."),
