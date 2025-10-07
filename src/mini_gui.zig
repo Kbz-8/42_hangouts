@@ -9,7 +9,7 @@ const c = @cImport({
 pub const Vec2 = struct { x: f32, y: f32 };
 pub const Rect = struct { x: f32, y: f32, w: f32, h: f32 };
 
-const Vertex = extern struct {
+const Vertex = packed struct {
     pos: @Vector(2, f32),
     col: @Vector(4, u8),
     uv: @Vector(2, f32),
@@ -86,7 +86,6 @@ const Batch = struct {
         const g8: u8 = @intCast((color >> 8) & 0xFF);
         const b8: u8 = @intCast((color >> 16) & 0xFF);
         const a8: u8 = @intCast((color >> 24) & 0xFF);
-
         // zig fmt: off
         try self.pushQuad(.{
             .{ .pos = .{ r.x,       r.y       }, .col = .{ r8, g8, b8, a8 }, .uv = .{ 0, 0 }, .is_textured = 0 },
@@ -210,14 +209,14 @@ pub const Gui = struct {
 
     pub fn endFrame(self: *Self) void {
         c.glUseProgram(self.program.prog);
-        std.log.debug("{} {}", .{ self.display_size.x, self.display_size.y });
         c.glUniform2f(self.program.u.screen, self.display_size.x, self.display_size.y);
 
-        // No textures, just colored triangles
         c.glDisable(c.GL_CULL_FACE);
         c.glDisable(c.GL_DEPTH_TEST);
         c.glEnable(c.GL_BLEND);
         c.glBlendFuncSeparate(c.GL_SRC_ALPHA, c.GL_ONE_MINUS_SRC_ALPHA, c.GL_ONE, c.GL_ONE_MINUS_SRC_ALPHA);
+
+        c.glBindTexture(c.GL_TEXTURE_2D, 0);
 
         const vbsize = @as(c.GLsizeiptr, @intCast(self.batch.verts.items.len * @sizeOf(Vertex)));
         c.glBindBuffer(c.GL_ARRAY_BUFFER, self.vbo);
@@ -233,12 +232,23 @@ pub const Gui = struct {
             const gl_type = glutils.typeToGLenum(T);
 
             c.glEnableVertexAttribArray(@intCast(@field(self.program.a, f.name)));
-            c.glVertexAttribPointer(@intCast(@field(self.program.a, f.name)), size, gl_type, if (gl_type != c.GL_FLOAT) c.GL_TRUE else c.GL_FALSE, @sizeOf(Vertex), @ptrFromInt(@offsetOf(Vertex, f.name)));
+            const offset = @offsetOf(Vertex, f.name);
+            std.log.debug("test {} {} {} {} {s}", .{ @sizeOf(Vertex), @sizeOf(@FieldType(Vertex, f.name)), offset, size, f.name });
+            c.glVertexAttribPointer(@intCast(@field(self.program.a, f.name)), size, gl_type, if (gl_type != c.GL_FLOAT) c.GL_TRUE else c.GL_FALSE, @sizeOf(Vertex), @ptrFromInt(offset));
         }
 
         if (self.batch.indices.items.len > 0) {
             c.glDrawElements(c.GL_TRIANGLES, @intCast(self.batch.indices.items.len), c.GL_UNSIGNED_SHORT, @ptrFromInt(0));
         }
+
+        inline for (std.meta.fields(@TypeOf(self.program.a))) |f| {
+            c.glDisableVertexAttribArray(@intCast(@field(self.program.a, f.name)));
+        }
+        c.glBindBuffer(c.GL_ARRAY_BUFFER, 0);
+        c.glBindBuffer(c.GL_ELEMENT_ARRAY_BUFFER, 0);
+        c.glBindTexture(c.GL_TEXTURE_2D, 0);
+        c.glUseProgram(0);
+        c.glDisable(c.GL_SCISSOR_TEST);
     }
 
     pub fn beginWindow(self: *Self, id: u32, rect: Rect) bool {
